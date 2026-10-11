@@ -83,4 +83,4 @@ Onno создаёт схему и генерирует REST API; собстве�
 Нужен Docker; рабочая база не затрагивается.
 Отчёт: `build/reports/tests/test/index.html`.
 
-Подробнее: [требования и проверки](docs/REQUIREMENTS.md),
+Подробнее: [требования и проверки](docs/REQUIREMENTS.md).
