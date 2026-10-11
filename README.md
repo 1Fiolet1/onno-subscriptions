@@ -84,4 +84,3 @@ Onno создаёт схему и генерирует REST API; собстве�
 Отчёт: `build/reports/tests/test/index.html`.
 
 Подробнее: [требования и проверки](docs/REQUIREMENTS.md),
-[особенности интерфейса Onno 3.4.1](docs/ONNO_KNOWN_LIMITATIONS.md).
