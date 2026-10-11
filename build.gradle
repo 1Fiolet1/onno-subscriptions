@@ -1,0 +1,73 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.4.4'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'ru.seleznev'
+version = '0.0.1-SNAPSHOT'
+description = 'onno-subscriptions'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+ext {
+    onnoVersion = '3.4.1'
+    testcontainersVersion = '2.0.5'
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "org.testcontainers:testcontainers-bom:${testcontainersVersion}"
+    }
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+    implementation "su.onno:onno-framework-starter:${onnoVersion}"
+    implementation "su.onno:onno-ui-starter:${onnoVersion}"
+    implementation "su.onno:onno-auth-starter:${onnoVersion}"
+    compileOnly 'org.projectlombok:lombok'
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+    runtimeOnly 'org.postgresql:postgresql'
+    annotationProcessor 'org.projectlombok:lombok'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+    testImplementation 'org.testcontainers:testcontainers-postgresql'
+    testCompileOnly 'org.projectlombok:lombok'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testAnnotationProcessor 'org.projectlombok:lombok'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+tasks.register('sourceBundle', Zip) {
+    group = 'distribution'
+    description = 'Packages source code and instructions without local credentials or generated files.'
+    archiveFileName = 'onno-subscriptions-source.zip'
+    destinationDirectory = layout.buildDirectory.dir('distributions')
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+    into('onno-subscriptions') {
+        from(projectDir) {
+            include 'src/**', 'docs/**', 'gradle/wrapper/**', '.agents/**'
+            include 'README.md', 'AGENTS.md', '.gitignore', '.gitattributes', '.env.example'
+            include 'build.gradle', 'settings.gradle', 'gradlew', 'compose.yaml'
+            eachFile {
+                if (name == 'gradlew') {
+                    permissions { unix('0755') }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,31 @@
+---
+name: onno-runtime-api
+description: >-
+  Inspect or call onno-framework generated REST and UI APIs. Use when logging in, handling CSRF,
+  calling /api/catalogs, /api/documents, /api/registers, posting preview/post/unpost endpoints,
+  reading list/get JSON contracts with *Display/*Ref/*Color companions, testing media/import endpoints,
+  debugging route names, distinguishing SPA fallback 200 from real API success, or writing curl/API
+  smoke tests for an onno app.
+---
+
+# onno Runtime API
+
+Generated APIs are authenticated. Browser page routes are not a substitute for API checks.
+
+## Rules
+
+- Login with `/api/auth/login` or your selected auth mode.
+- Mutations need `X-XSRF-TOKEN` in cookie-based modes.
+- Use the annotation's logical `name` in URLs, not the Java class name. Collection reads use
+  `/api/list/catalogs/{name}` and `/api/list/documents/{name}`; CRUD uses
+  `/api/catalogs/{name}` and `/api/documents/{name}`.
+- Unknown non-API routes can return SPA HTML with 200.
+- There is no anonymous `/api/ui/metadata/manifest`.
+- Catalog/document reads default to logical camelCase names matching partial writes. Add
+  `?representation=storage` only for legacy reads; writes accept either vocabulary and reject
+  conflicting aliases.
+- `LocalDate` is `yyyy-MM-dd`. `LocalDateTime` is offset-free ISO wall time
+  (`yyyy-MM-ddTHH:mm[:ss[.fraction]]`). Offset- or zone-bearing writes are rejected with a
+  field-specific `400`; callers must send the canonical offset-free form.
+
+Read [references/examples.md](references/examples.md) for curl flows and response-shape examples.

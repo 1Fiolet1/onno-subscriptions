@@ -1,0 +1,41 @@
+---
+name: onno-mcp
+description: >-
+  Configure, use, or debug onno-mcp-starter. Use when exposing an onno app over Model Context
+  Protocol, connecting MCP clients to /mcp streamable HTTP, using describe_metadata, list/get
+  catalog/document tools, register_balance/register_movements, create/update/delete tools,
+  posting_preview/post_document/unpost_document, configuring onno.mcp.* properties, security,
+  write/posting gates, or ensuring LLM tools obey the same RBAC as the UI.
+  Also use when adding application-specific @McpTool methods or McpToolProvider beans.
+---
+
+# onno MCP
+
+MCP tools are generated from metadata and run as the authenticated user. The model gets no access a
+human user would not have.
+
+Application-specific tools are additive: annotate a public Spring bean method with `@McpTool` and
+its ordinary parameters with `@McpToolParam` where descriptions or schema overrides are needed.
+`Principal` or `McpToolContext` may be injected. Use `roles` for an any-of role allowlist and set
+`readOnly = false` for mutations so `onno.mcp.writes-enabled` gates them. Use an
+`McpToolProvider` bean only for direct MCP Java SDK specifications. Duplicate tool names fail
+startup.
+
+## Tool Groups
+
+- Discovery: `describe_metadata` (readable entities/enums plus latest versioned typed process
+  graph descriptors; no payload-dependent task assignments)
+- Reads: `list_catalog`, `get_catalog`, `list_documents`, `get_document`
+- Registers: `register_balance`, `register_movements`
+- Writes: `create_catalog`, `update_catalog`, `delete_catalog`, `create_document`,
+  `update_document`, `delete_document`
+- Posting: `posting_preview`, `post_document`, `unpost_document`
+
+The two list tools return one keyset window as `{rows,nextCursor,hasMore}`. Replay the opaque
+`nextCursor`; do not assume an unbounded list or offset.
+Register reads are bounded one-call tools: movements cap at 1,000 rows and balances at 5,000. If
+more rows match, the tool returns an error instead of incomplete data; narrow `from`/`to` or the
+dimension filters and retry.
+
+Read [references/examples.md](references/examples.md) for dependency/config/client examples and
+agent workflow.
