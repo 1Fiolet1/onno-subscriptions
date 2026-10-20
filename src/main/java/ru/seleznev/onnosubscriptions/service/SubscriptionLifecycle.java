@@ -48,7 +48,6 @@ public class SubscriptionLifecycle {
             throw new ValidationException("Недостаточно средств на лицевом счёте клиента: доступно "
                     + available.toPlainString() + " ₽, требуется " + subscription.getTotal().toPlainString() + " ₽");
         }
-        // Onno checks the resulting balance again inside the posting transaction to handle races.
     }
 
     public void recalculate(Subscription subscription) {
