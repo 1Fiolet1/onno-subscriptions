@@ -15,9 +15,9 @@
 | Платёж: клиент, сумма, способ оплаты | `domain/Payment.java`, `PaymentMethod` | `creditsOnlySelectedCustomerAndPreviewDoesNotPersist`, `rejectsInvalidPaymentsWithoutDocumentsOrMovements` |
 | Регистр остатков: измерение клиент, ресурс сумма | `domain/CustomerAccount.java`, тип `BALANCE` | `creditsOnlySelectedCustomerAndPreviewDoesNotPersist`; чтение остатка через генерируемый REST API |
 | Проведение платежа пополняет лицевой счёт клиента | `Payment.handlePosting`, типизированный приход | `creditsOnlySelectedCustomerAndPreviewDoesNotPersist` |
-| Отмена проведения удаляет вклад платежа, повторное проведение не удваивает сумму | Стандартный `PostingService` Onno | `unpostsAndRepostsPaymentWithoutDuplicateMovements` |
+| Отмена проведения удаляет вклад платежа; повторный запрос проведения запрещён | Стандартный `PostingService` Onno | `requiresUnpostingBeforePostingPaymentAgain` |
 | Ошибка проведения не меняет прежние движения и остаток | Стандартный `PostingService` и `Payment.rules()` | `failedCorePostingKeepsExistingPaymentAndBalance` |
-| Дата документа при создании, сохранение явно заданной даты | Конструктор `Payment`, `OnFillingHandler`, стандартный путь создания Onno | `creditsOnlySelectedCustomerAndPreviewDoesNotPersist`, `unpostsAndRepostsPaymentWithoutDuplicateMovements` |
+| Дата документа при создании, сохранение явно заданной даты | Конструктор `Payment`, `OnFillingHandler`, стандартный путь создания Onno | `creditsOnlySelectedCustomerAndPreviewDoesNotPersist`, `requiresUnpostingBeforePostingPaymentAgain` |
 | EntityView платежа и лицевого счёта, меню и форматирование | `PaymentView`, `CustomerAccountView`, `SubscriptionsLayout` | `exposesPaymentAndAccountNavigationAndDefaults`; дополнительно формы и таблицы на широком и узком экране |
 | Подписка: клиент, статус, начало, окончание, итог; строки: тариф, периоды, цена, сумма | `domain/Subscription.java`, `domain/SubscriptionLine.java`, `@TabularSection` | `calculatesSubscriptionTotalAndMaximumDurationFromTariffs`, `replacesSubscriptionRowsAndRecalculatesOnEverySave` |
 | Дата документа и начала при создании, статус по умолчанию | Конструктор и инициализаторы `Subscription`, `OnFillingHandler` | `exposesSubscriptionNavigationAndNewFormDefaults`, `fillsAndRecalculatesSubscriptionThroughTypedRepository` |
@@ -29,8 +29,8 @@
 | Выручка: оборотный регистр, измерения тариф/клиент, ресурсы сумма/периоды | `domain/Revenue.java`, `TURNOVER` | `postsSubscriptionIntoAccountAndRevenueAndFiltersTurnoverByPeriod` |
 | Проведение подписки списывает итог и признаёт выручку по строкам | `Subscription.handlePosting`, типизированные расход и приходы | `postsSubscriptionIntoAccountAndRevenueAndFiltersTurnoverByPeriod` |
 | Нехватка средств запрещает проведение без частичной записи | `BeforePostHandler`, `SubscriptionLifecycle.checkFunds`, транзакционный запрет отрицательного остатка Onno | `rejectsInsufficientFundsWithoutPartialPostingAndAcceptsExactBalance`, `concurrentSubscriptionsCannotOverdrawOneCustomerAccount` |
-| Отменённая подписка не создаёт движений | Проверка `CANCELLED` в `checkFunds` и `handlePosting` | `cancelledSubscriptionCreatesNoMovementsAndRepostingCancellationReturnsFunds` |
-| Отмена и перепроведение подписки согласованно изменяют оба регистра, без дублей | Стандартный `PostingService` Onno, учёт прежнего активного списания при проверке средств | `unpostsAndRepostsSubscriptionWithoutDuplicateRevenueOrInactiveBalanceCredit`, `failedSubscriptionRepostPreservesDocumentBothRegistersAndCustomerIsolation` |
+| Отменённая подписка не создаёт движений | Проверка `CANCELLED` в `checkFunds` и `handlePosting` | `cancelledSubscriptionCreatesNoMovementsAndCancellationReturnsFunds` |
+| Отмена проведения согласованно меняет оба регистра; повторное проведение запрещено | `PostingService` Onno; запрет повторного проведения в `BeforePostHandler` | `requiresUnpostingBeforeChangingSubscriptionPosting`, `rejectsSubscriptionRepostingWithoutChangingDocumentOrRegisters` |
 | Выручка доступна в интерфейсе, суммы и периоды форматируются, есть меню | `RevenueView`, `SubscriptionsLayout` | `exposesRevenueAndSubscriptionPostingActions`; дополнительно просмотр двух движений через браузер |
 | Регламентное обновление статусов по датам | `SubscriptionStatusJob`, `@ScheduledJob`, `BackgroundTask`, часовой cron и фоновый запуск при старте | `registersHourlyBackgroundTaskAndEnqueuesItOnStartup` |
 | Границы срока, московская дата, повторный запуск без финансовых изменений | `Clock`, `SubscriptionStatusWriter`, частичная запись в таблицу Onno | `updatesSubscriptionStatusesAtDateBoundariesWithoutChangingFinancialData` |
@@ -47,3 +47,7 @@
 | Проверка причины и отмена черновика | Причина обязательна, до 1000 символов; черновик сохраняется без проведения | `rejectsEmptyCancellationReasonAndCancelsDraftWithoutFinancialMovements` |
 
 Всего после этапов 8–9: 36 интеграционных тестов без ошибок и пропусков.
+
+Повторное проведение действующих документов запрещено в UI и API. Для исправления
+сначала отменяют проведение, затем редактируют и проводят документ заново.
+Внутреннее `PostingService.repost` используется только для атомарной отмены с причиной.

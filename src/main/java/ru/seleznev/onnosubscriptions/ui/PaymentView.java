@@ -5,10 +5,38 @@ import ru.seleznev.onnosubscriptions.domain.Customer;
 import ru.seleznev.onnosubscriptions.domain.Payment;
 import su.onno.ui.EntityConfigBuilder;
 import su.onno.ui.EntityView;
+import ru.seleznev.onnosubscriptions.repository.PaymentRepository;
+import su.onno.posting.PostingService;
+import su.onno.validation.ValidationException;
 import su.onno.ui.ListSpec;
+import su.onno.ui.ActionSpec;
+import su.onno.ui.ActionScope;
+import su.onno.ui.ActionResult;
+import su.onno.ui.ActionToast;
 
 @Component
 public class PaymentView implements EntityView<Payment> {
+    private final PaymentRepository documents;
+    private final PostingService posting;
+
+    public PaymentView(PaymentRepository documents, PostingService posting) {
+        this.documents = documents;
+        this.posting = posting;
+    }
+
+    @Override
+    public void actions(ActionSpec actions) {
+        actions.action("post-document").label("Провести").icon("check").scope(ActionScope.DETAIL).roles("ADMIN")
+                .visibleWhen(row -> row.id() != null && !row.bool("_posted"))
+                .enabledWhen(row -> !row.bool("_posted"))
+                .handler(context -> {
+                    var document = documents.findActiveById(context.id())
+                            .orElseThrow(() -> new ValidationException("Документ не найден"));
+                    posting.post(document);
+                    return ActionResult.refresh(ActionToast.success("Документ проведён"));
+                });
+    }
+
     @Override
     public Class<Payment> entity() {
         return Payment.class;
@@ -40,7 +68,7 @@ public class PaymentView implements EntityView<Payment> {
                 .hint("Положительная сумма в рублях. Сохранение создаёт черновик; проведение пополняет баланс.");
         fields.field(Payment::getPaymentMethod).order(50).width("half");
         fields.field(Payment::isPosted).label("Проведён").hideInForm();
-        fields.action("post").primary();
+        fields.action("post").hidden();
         fields.action("unpost").inMenu();
     }
 }

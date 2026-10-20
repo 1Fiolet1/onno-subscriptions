@@ -12,7 +12,6 @@ import ru.seleznev.onnosubscriptions.repository.TariffRepository;
 import ru.seleznev.onnosubscriptions.repository.SubscriptionRepository;
 import su.onno.rules.BusinessRule;
 import su.onno.types.Ref;
-import su.onno.model.MovementType;
 import su.onno.validation.ValidationException;
 
 import java.math.BigDecimal;
@@ -45,15 +44,6 @@ public class SubscriptionLifecycle {
         BigDecimal available = accounts.getBalance(filter -> filter
                         .where(CustomerAccount::getCustomer, subscription.getCustomer())).stream()
                 .map(CustomerAccount::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (subscription.getId() != null) {
-            // Reposting reverses the document's previous active movements in its transaction.
-            for (CustomerAccount movement : accounts.getRecordsByDocument(subscription.getId())) {
-                if (movement.isActive() && subscription.getCustomer().equals(movement.getCustomer())) {
-                    available = movement.getMovementType() == MovementType.EXPENSE
-                            ? available.add(movement.getAmount()) : available.subtract(movement.getAmount());
-                }
-            }
-        }
         if (available.compareTo(subscription.getTotal()) < 0) {
             throw new ValidationException("Недостаточно средств на лицевом счёте клиента: доступно "
                     + available.toPlainString() + " ₽, требуется " + subscription.getTotal().toPlainString() + " ₽");

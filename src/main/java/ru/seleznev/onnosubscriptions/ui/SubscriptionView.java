@@ -7,6 +7,9 @@ import ru.seleznev.onnosubscriptions.domain.SubscriptionLine;
 import ru.seleznev.onnosubscriptions.domain.Tariff;
 import su.onno.ui.EntityConfigBuilder;
 import su.onno.ui.EntityView;
+import ru.seleznev.onnosubscriptions.repository.SubscriptionRepository;
+import su.onno.posting.PostingService;
+import su.onno.validation.ValidationException;
 import su.onno.ui.ListSpec;
 import su.onno.ui.ActionSpec;
 import su.onno.ui.ActionScope;
@@ -18,14 +21,27 @@ import ru.seleznev.onnosubscriptions.service.SubscriptionCancellation;
 
 @Component
 public class SubscriptionView implements EntityView<Subscription> {
+    private final SubscriptionRepository documents;
+    private final PostingService posting;
     private final SubscriptionCancellation cancellation;
 
-    public SubscriptionView(SubscriptionCancellation cancellation) {
+    public SubscriptionView(SubscriptionCancellation cancellation, SubscriptionRepository documents, PostingService posting) {
+        this.documents = documents;
+        this.posting = posting;
         this.cancellation = cancellation;
     }
 
     @Override
     public void actions(ActionSpec actions) {
+        actions.action("post-document").label("Провести").icon("check").scope(ActionScope.DETAIL).roles("ADMIN")
+                .visibleWhen(row -> row.id() != null && !row.bool("_posted"))
+                .enabledWhen(row -> !row.bool("_posted"))
+                .handler(context -> {
+                    var document = documents.findActiveById(context.id())
+                            .orElseThrow(() -> new ValidationException("Документ не найден"));
+                    posting.post(document);
+                    return ActionResult.refresh(ActionToast.success("Документ проведён"));
+                });
         for (var scope : new ActionScope[]{ActionScope.ROW, ActionScope.DETAIL}) {
             actions.action(scope == ActionScope.ROW ? "cancel-subscription-row" : "cancel-subscription")
                     .label("Отменить подписку").icon("ban").scope(scope).roles("ADMIN")
@@ -62,6 +78,8 @@ public class SubscriptionView implements EntityView<Subscription> {
     @Override
     public void fields(EntityConfigBuilder<Subscription> fields) {
         fields.icon("calendar-check");
+        fields.action("post").hidden();
+        fields.action("unpost").inMenu();
         fields.field(Subscription::getNumber).label("Номер").order(10).width("half");
         fields.field(Subscription::getDate).label("Дата документа").order(20).width("half")
                 .format("dd.MM.yyyy HH:mm");

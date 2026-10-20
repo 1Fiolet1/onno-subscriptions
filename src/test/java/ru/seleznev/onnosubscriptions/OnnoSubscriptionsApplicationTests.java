@@ -301,9 +301,9 @@ class OnnoSubscriptionsApplicationTests {
     }
 
     @Test
-    void unpostsAndRepostsPaymentWithoutDuplicateMovements() throws Exception {
+    void requiresUnpostingBeforePostingPaymentAgain() throws Exception {
         try (HttpClient client = adminClient()) {
-            String customer = create(client, "Customers", customerBody("Перепроведение платежа")).path("id").asText();
+            String customer = create(client, "Customers", customerBody("Повторное проведение платежа")).path("id").asText();
             String other = create(client, "Customers", customerBody("Новый получатель")).path("id").asText();
             Map<String, Object> body = paymentBody(customer, "100.00", PaymentMethod.CARD);
             body.put("date", "2026-01-15T10:30:00");
@@ -313,7 +313,7 @@ class OnnoSubscriptionsApplicationTests {
             String path = "/api/documents/Payments/" + id;
 
             paymentCommand(client, id, "post");
-            paymentCommand(client, id, "post");
+            assertAlreadyPostedRejected(client, "Payments", id);
             assertThat(balance(client, customer)).isEqualByComparingTo("100.00");
             assertThat(movementCount(id)).isEqualTo(1);
             assertThat(paymentCommand(client, id, "unpost").path("posted").asBoolean()).isFalse();
@@ -329,7 +329,7 @@ class OnnoSubscriptionsApplicationTests {
             assertThat(balance(client, customer)).isEqualByComparingTo(BigDecimal.ZERO);
             assertThat(balance(client, other)).isEqualByComparingTo("150.25");
             assertThat(movementCount(id)).isEqualTo(1);
-            paymentCommand(client, id, "post");
+            assertAlreadyPostedRejected(client, "Payments", id);
             assertThat(balance(client, other)).isEqualByComparingTo("150.25");
             assertThat(movementCount(id)).isEqualTo(1);
         }
@@ -349,7 +349,7 @@ class OnnoSubscriptionsApplicationTests {
             payment.setAmount(new BigDecimal("750.50"));
             payment.setPosted(true);
             assertThatThrownBy(() -> posting.post(payment))
-                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("already posted");
+                    .isInstanceOf(ValidationException.class).hasMessageContaining("Документ уже проведён");
             payment.setAmount(BigDecimal.ZERO);
             assertThatThrownBy(() -> posting.repost(payment)).isInstanceOf(ValidationException.class);
             JsonNode stored = mapper.readTree(get(client, "/api/documents/Payments/" + id).body());
@@ -659,7 +659,7 @@ class OnnoSubscriptionsApplicationTests {
             JsonNode form = mapper.readTree(get(client, "/api/divkit/documents/Subscriptions/new").body());
             JsonNode meta = form.findValue("form").path("meta");
             assertThat(meta.path("postable").asBoolean()).isTrue();
-            assertThat(meta.path("actions").path("post").asText()).isEqualTo("primary");
+            assertThat(meta.path("actions").path("post").asText()).isEqualTo("hidden");
             assertThat(meta.path("actions").path("unpost").asText()).isEqualTo("menu");
         }
     }
@@ -727,21 +727,22 @@ class OnnoSubscriptionsApplicationTests {
     }
 
     @Test
-    void unpostsAndRepostsSubscriptionWithoutDuplicateRevenueOrInactiveBalanceCredit() throws Exception {
+    void requiresUnpostingBeforeChangingSubscriptionPosting() throws Exception {
         try (HttpClient client = adminClient()) {
-            String customer = create(client, "Customers", customerBody("Перепроведение подписки")).path("id").asText();
+            String customer = create(client, "Customers", customerBody("Повторное проведение подписки")).path("id").asText();
             fund(client, customer, "200.00");
-            String tariff = createTariff(client, "Тариф перепроведения", "100.00", 30, true);
+            String tariff = createTariff(client, "Тариф повторного проведения", "100.00", 30, true);
             String id = createPostingSubscription(client, customer, tariff, 1);
             subscriptionCommand(client, id, "post");
-            subscriptionCommand(client, id, "post");
+            assertAlreadyPostedRejected(client, "Subscriptions", id);
             assertThat(balance(client, customer)).isEqualByComparingTo("100.00");
             assertThat(movementCount(id)).isEqualTo(1);
             assertThat(revenueMovementCount(id)).isEqualTo(1);
             assertThat(revenue(client, customer).path(0).path("periods").asInt()).isEqualTo(1);
-            Subscription changed = subscriptions.findActiveById(UUID.fromString(id)).orElseThrow();
-            changed.getItems().getFirst().setPeriods(2);
-            posting.repost(changed);
+            subscriptionCommand(client, id, "unpost");
+            assertThat(mutate(client, "PUT", "/api/documents/Subscriptions/" + id,
+                    Map.of("items", List.of(subscriptionLine(tariff, 2)))).statusCode()).isEqualTo(200);
+            subscriptionCommand(client, id, "post");
             assertThat(balance(client, customer)).isEqualByComparingTo(BigDecimal.ZERO);
             assertThat(readSubscription(client, id).path("items").path(0).path("periods").asInt()).isEqualTo(2);
             assertThat(readSubscription(client, id).path("total").decimalValue()).isEqualByComparingTo("200.00");
@@ -766,7 +767,7 @@ class OnnoSubscriptionsApplicationTests {
             assertThat(mutate(client, "PUT", "/api/documents/Subscriptions/" + id,
                     Map.of("items", List.of(subscriptionLine(tariff, 2)))).statusCode()).isEqualTo(200);
             subscriptionCommand(client, id, "post");
-            subscriptionCommand(client, id, "post");
+            assertAlreadyPostedRejected(client, "Subscriptions", id);
             assertThat(balance(client, customer)).isEqualByComparingTo(BigDecimal.ZERO);
             assertThat(revenue(client, customer).path(0).path("amount").decimalValue()).isEqualByComparingTo("200.00");
             assertThat(revenue(client, customer).path(0).path("periods").asInt()).isEqualTo(2);
@@ -776,7 +777,7 @@ class OnnoSubscriptionsApplicationTests {
     }
 
     @Test
-    void cancelledSubscriptionCreatesNoMovementsAndRepostingCancellationReturnsFunds() throws Exception {
+    void cancelledSubscriptionCreatesNoMovementsAndCancellationReturnsFunds() throws Exception {
         try (HttpClient client = adminClient()) {
             String customer = create(client, "Customers", customerBody("Отмена подписки")).path("id").asText();
             String tariff = createTariff(client, "Отменённый тариф", "100.00", 30, true);
@@ -786,7 +787,7 @@ class OnnoSubscriptionsApplicationTests {
             body.put("date", "2026-01-10T12:00:00");
             String id = createSubscription(client, body).path("id").asText();
             subscriptionCommand(client, id, "post");
-            subscriptionCommand(client, id, "post");
+            assertAlreadyPostedRejected(client, "Subscriptions", id);
             assertThat(movementCount(id)).isZero();
             assertThat(revenueMovementCount(id)).isZero();
             assertThat(balance(client, customer)).isEqualByComparingTo(BigDecimal.ZERO);
@@ -797,7 +798,7 @@ class OnnoSubscriptionsApplicationTests {
             subscriptionCommand(client, id, "post");
             assertThat(balance(client, customer)).isEqualByComparingTo(BigDecimal.ZERO);
             Subscription cancelled = subscriptions.findActiveById(UUID.fromString(id)).orElseThrow();
-            cancelled.setStatus(SubscriptionStatus.CANCELLED);
+            cancelled.cancelWithReason("Отмена клиентом");
             posting.repost(cancelled);
             assertThat(readSubscription(client, id).path("statusDisplay").asText()).isEqualTo("Отменена");
             assertThat(balance(client, customer)).isEqualByComparingTo("100.00");
@@ -808,7 +809,7 @@ class OnnoSubscriptionsApplicationTests {
     }
 
     @Test
-    void failedSubscriptionRepostPreservesDocumentBothRegistersAndCustomerIsolation() throws Exception {
+    void rejectsSubscriptionRepostingWithoutChangingDocumentOrRegisters() throws Exception {
         try (HttpClient client = adminClient()) {
             String customer = create(client, "Customers", customerBody("Сохранность проведения")).path("id").asText();
             String other = create(client, "Customers", customerBody("Без денег")).path("id").asText();
@@ -819,11 +820,11 @@ class OnnoSubscriptionsApplicationTests {
             JsonNode before = readSubscription(client, id);
             JsonNode revenueBefore = revenue(client, customer);
             Subscription document = subscriptions.findActiveById(UUID.fromString(id)).orElseThrow();
-            assertThatThrownBy(() -> posting.post(document)).isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("already posted");
+            assertThatThrownBy(() -> posting.post(document)).isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("Документ уже проведён");
             document.getItems().getFirst().setPeriods(3);
             assertThatThrownBy(() -> posting.repost(document)).isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("Недостаточно средств");
+                    .hasMessageContaining("Документ уже проведён");
             document.getItems().getFirst().setPeriods(1);
             document.setCustomer(Ref.of(Customer.class, UUID.fromString(other)));
             assertThatThrownBy(() -> posting.repost(document)).isInstanceOf(ValidationException.class);
@@ -942,7 +943,7 @@ class OnnoSubscriptionsApplicationTests {
             subscriptionCommand(client, id, "post");
             Subscription stale = subscriptions.findActiveById(UUID.fromString(id)).orElseThrow();
             Subscription cancelled = subscriptions.findActiveById(UUID.fromString(id)).orElseThrow();
-            cancelled.setStatus(SubscriptionStatus.CANCELLED);
+            cancelled.cancelWithReason("Отмена клиентом");
             posting.repost(cancelled);
             assertThat(statusWriter.updateIfUnchanged(stale, SubscriptionStatus.ACTIVE)).isFalse();
             assertThat(readSubscription(client, id).path("statusDisplay").asText()).isEqualTo("Отменена");
@@ -955,9 +956,10 @@ class OnnoSubscriptionsApplicationTests {
             String edited = createPostingSubscription(client, customer, tariff, 1);
             subscriptionCommand(client, edited, "post");
             Subscription previousDates = subscriptions.findActiveById(UUID.fromString(edited)).orElseThrow();
-            Subscription newDates = subscriptions.findActiveById(UUID.fromString(edited)).orElseThrow();
-            newDates.setStartDate(LocalDate.of(2026, 4, 1));
-            posting.repost(newDates);
+            subscriptionCommand(client, edited, "unpost");
+            assertThat(mutate(client, "PUT", "/api/documents/Subscriptions/" + edited,
+                    Map.of("startDate", "2026-04-01")).statusCode()).isEqualTo(200);
+            subscriptionCommand(client, edited, "post");
             assertThat(statusWriter.updateIfUnchanged(previousDates, SubscriptionStatus.EXPIRED)).isFalse();
             assertThat(readSubscription(client, edited).path("startDate").asText()).isEqualTo("2026-04-01");
             assertThat(readSubscription(client, edited).path("statusDisplay").asText()).isEqualTo("Черновик");
@@ -982,6 +984,18 @@ class OnnoSubscriptionsApplicationTests {
             String id = createPostingSubscription(client, customer, tariff, 1);
             assertThat(get(client, "/api/divkit/documents/Subscriptions/" + id).body())
                     .contains("cancel-subscription", "Отменить подписку", "Причина отмены");
+            var action = mutate(client, "POST", "/api/actions/documents/Subscriptions/post-document?id=" + id, Map.of());
+            assertThat(action.statusCode()).withFailMessage(action.body()).isEqualTo(200);
+            assertThat(readSubscription(client, id).path("posted").asBoolean()).isTrue();
+            assertAlreadyPostedRejected(client, "Subscriptions", id);
+            var retry = mutate(client, "POST", "/api/actions/documents/Subscriptions/post-document?id=" + id, Map.of());
+            assertThat(retry.statusCode()).withFailMessage(retry.body()).isBetween(400, 499);
+
+            String paymentId = createPayment(client, customer, "50.00", PaymentMethod.CARD).path("id").asText();
+            var paymentAction = mutate(client, "POST", "/api/actions/documents/Payments/post-document?id=" + paymentId, Map.of());
+            assertThat(paymentAction.statusCode()).withFailMessage(paymentAction.body()).isEqualTo(200);
+            assertAlreadyPostedRejected(client, "Payments", paymentId);
+            assertThat(balance(client, customer)).isEqualByComparingTo("50.00");
         }
         try (HttpClient anonymous = newClient()) {
             assertThat(get(anonymous, "/api/divkit/dashboard").statusCode()).isEqualTo(401);
@@ -1049,6 +1063,15 @@ class OnnoSubscriptionsApplicationTests {
         assertThat(recurring.getJobDetails().getClassName()).isEqualTo(su.onno.jobs.BackgroundTask.class.getName());
         assertThat(recurring.getJobDetails().getMethodName()).isEqualTo("execute");
         assertThat(jobStorage.countJobs(org.jobrunr.jobs.states.StateName.ENQUEUED)).isPositive();
+    }
+
+    private void assertAlreadyPostedRejected(HttpClient client, String entity, String id) throws Exception {
+        String path = "/api/documents/" + entity + "/" + id;
+        JsonNode before = mapper.readTree(get(client, path).body());
+        var result = mutate(client, "POST", path + "/post", Map.of());
+        assertThat(result.statusCode()).withFailMessage(result.body()).isEqualTo(400);
+        assertThat(result.body()).contains("Документ уже проведён");
+        assertThat(mapper.readTree(get(client, path).body())).isEqualTo(before);
     }
 
     private boolean tryConcurrentPosting(Subscription document, CountDownLatch start) throws InterruptedException {

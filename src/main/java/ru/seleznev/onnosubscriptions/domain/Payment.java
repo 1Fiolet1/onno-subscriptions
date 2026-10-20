@@ -7,11 +7,13 @@ import su.onno.annotations.Attribute;
 import su.onno.annotations.Document;
 import su.onno.lifecycle.OnFillingHandler;
 import su.onno.lifecycle.Postable;
+import su.onno.lifecycle.BeforePostHandler;
 import su.onno.model.DocumentObject;
 import su.onno.posting.PostingContext;
 import su.onno.rules.BusinessRule;
 import su.onno.rules.Validated;
 import su.onno.types.Ref;
+import su.onno.validation.ValidationException;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -21,7 +23,7 @@ import java.util.List;
 @AccessControl(readRoles = "ADMIN", writeRoles = "ADMIN")
 @Getter
 @Setter
-public class Payment extends DocumentObject implements OnFillingHandler, Validated, Postable {
+public class Payment extends DocumentObject implements OnFillingHandler, BeforePostHandler, Validated, Postable {
 
     @Attribute(displayName = "Клиент", required = true)
     private Ref<Customer> customer;
@@ -53,6 +55,13 @@ public class Payment extends DocumentObject implements OnFillingHandler, Validat
                 BusinessRule.onField("amount", "Сумма платежа должна быть больше нуля",
                         () -> amount != null && amount.signum() > 0),
                 BusinessRule.onField("paymentMethod", "Выберите способ оплаты", () -> paymentMethod != null));
+    }
+
+    @Override
+    public void beforePost() {
+        if (isPosted()) {
+            throw new ValidationException("Документ уже проведён. Сначала отмените проведение");
+        }
     }
 
     @Override

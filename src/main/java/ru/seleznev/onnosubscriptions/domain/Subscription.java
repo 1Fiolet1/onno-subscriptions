@@ -17,6 +17,7 @@ import su.onno.posting.PostingContext;
 import su.onno.rules.BusinessRule;
 import su.onno.rules.Validated;
 import su.onno.types.Ref;
+import su.onno.validation.ValidationException;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -88,6 +89,9 @@ public class Subscription extends DocumentObject implements OnFillingHandler, Be
 
     @Override
     public void beforePost() {
+        if (isPosted() && !cancellationCommand) {
+            throw new ValidationException("Документ уже проведён. Сначала отмените проведение");
+        }
         ApplicationBeans.get(SubscriptionLifecycle.class).checkFunds(this);
     }
 
